@@ -1,0 +1,9 @@
+flask
+flask-cors
+pymongo
+python-dotenv
+marshmallow
+groq
+pypdf
+python-pptx
+moviepy

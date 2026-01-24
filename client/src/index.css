@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-prime: #0f172a;
+  --color-accent: #8b5cf6;
+  --color-glass: rgba(255, 255, 255, 0.1);
+  --font-sans: 'Inter', sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-prime text-white antialiased overflow-hidden;
+  }
+}
+
+.glass-panel {
+  @apply bg-glass backdrop-blur-lg border border-white/10 rounded-xl shadow-xl;
+}
+
+.glow {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}

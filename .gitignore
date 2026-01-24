@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+/server/venv/
+/server/__pycache__/
+__pycache__/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Build Outputs
+dist/
+build/
+
+# Uploads & Media
+/server/uploads/
+*.mp3
+*.mp4
+*.pptx
+*.pdf
+
+# IDEs
+.vscode/
+.idea/
+*.swp
