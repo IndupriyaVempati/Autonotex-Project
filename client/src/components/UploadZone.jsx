@@ -49,6 +49,7 @@ const UploadZone = ({ onAnalysisComplete }) => {
         }
     };
 
+
     const fileInputRef = React.useRef(null);
 
     const onButtonClick = () => {
@@ -101,6 +102,7 @@ const UploadZone = ({ onAnalysisComplete }) => {
                     </div>
                 )}
             </motion.div>
+
         </div>
     );
 };
