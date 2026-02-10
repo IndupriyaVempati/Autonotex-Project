@@ -1,14 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { TrendingUp, TrendingDown, AlertCircle, CheckCircle2, BookMarked } from 'lucide-react';
 
 const QuizAnalysis = ({ quizResult, onRetake, onBack }) => {
-    const [analysis, setAnalysis] = useState(null);
+    const analysis = useMemo(() => {
+        if (!quizResult) {
+            return null;
+        }
 
-    useEffect(() => {
-        generateAnalysis();
-    }, [quizResult]);
-
-    const generateAnalysis = () => {
         const { questions, userAnswers, totalQuestions, correctAnswers, subject } = quizResult;
         
         // Calculate metrics
@@ -48,16 +46,25 @@ const QuizAnalysis = ({ quizResult, onRetake, onBack }) => {
         weakTopics.sort((a, b) => a.score - b.score);
         strongTopics.sort((a, b) => b.score - a.score);
 
-        setAnalysis({
+        const mistakes = Object.entries(userAnswers)
+            .filter(([qIdx, answer]) => {
+                const q = questions[parseInt(qIdx)];
+                return q && answer !== q.correct_answer;
+            })
+            .map(([qIdx]) => questions[parseInt(qIdx)])
+            .filter(Boolean);
+
+        return {
             score,
             correctAnswers,
             totalQuestions,
             topicPerformance,
             weakTopics,
             strongTopics,
+            mistakes,
             subject
-        });
-    };
+        };
+    }, [quizResult]);
 
     if (!analysis) return null;
 
@@ -83,6 +90,33 @@ const QuizAnalysis = ({ quizResult, onRetake, onBack }) => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 <div className="max-w-3xl mx-auto space-y-6">
+                                        {/* Topic Mastery */}
+                                        <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+                                            <h4 className="text-white font-semibold mb-3">Topic Mastery</h4>
+                                            <div className="space-y-3">
+                                                {Object.entries(analysis.topicPerformance).map(([topic, data]) => {
+                                                    const topicScore = (data.correct / data.total) * 100;
+                                                    return (
+                                                        <div key={topic}>
+                                                            <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                                                                <span>{topic}</span>
+                                                                <span>{Math.round(topicScore)}%</span>
+                                                            </div>
+                                                            <div className="w-full bg-black/30 rounded-full h-1.5">
+                                                                <div
+                                                                    className="bg-accent h-1.5 rounded-full"
+                                                                    style={{ width: `${topicScore}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {Object.keys(analysis.topicPerformance).length === 0 && (
+                                                    <div className="text-xs text-gray-500">No topic data yet.</div>
+                                                )}
+                                            </div>
+                                        </div>
+
                     {/* Score Card */}
                     <div className={`p-6 rounded-lg border ${getScoreBg(analysis.score)}`}>
                         <div className="flex items-center justify-between mb-4">
@@ -184,6 +218,28 @@ const QuizAnalysis = ({ quizResult, onRetake, onBack }) => {
                             <li>• Review explanations for incorrect answers</li>
                         </ul>
                     </div>
+
+                    {/* Mistake Review */}
+                    {analysis.mistakes.length > 0 && (
+                        <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+                            <h4 className="text-white font-semibold mb-3">Mistake Review</h4>
+                            <div className="space-y-3">
+                                {analysis.mistakes.map((q, idx) => (
+                                    <div key={`${q.question}-${idx}`} className="p-3 rounded-lg bg-black/20">
+                                        <div className="text-sm text-white font-medium mb-1">{q.question}</div>
+                                        {(q.topic || q.category) && (
+                                            <div className="text-xs text-gray-400 mb-2">
+                                                Topic: {q.topic || q.category}
+                                            </div>
+                                        )}
+                                        <div className="text-xs text-gray-300">
+                                            {q.learning_suggestion || q.explanation_long || q.explanation}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

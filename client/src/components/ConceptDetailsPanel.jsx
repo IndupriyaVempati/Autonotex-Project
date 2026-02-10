@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../utils/api';
 
 const ConceptDetailsPanel = ({ conceptLabel, docId, onClose }) => {
     const [details, setDetails] = useState(null);
@@ -11,12 +12,10 @@ const ConceptDetailsPanel = ({ conceptLabel, docId, onClose }) => {
         const fetchConceptDetails = async () => {
             try {
                 setLoading(true);
-                const url = `http://localhost:5001/concept/${encodeURIComponent(conceptLabel)}${docId ? `?doc_id=${docId}` : ''}`;
-                const response = await fetch(url);
-                
-                if (!response.ok) throw new Error('Failed to fetch concept details');
-                
-                const data = await response.json();
+                const response = await api.get(`/concept/${encodeURIComponent(conceptLabel)}`, {
+                    params: docId ? { doc_id: docId } : {}
+                });
+                const data = response.data;
                 setDetails(data);
                 setError(null);
             } catch (err) {

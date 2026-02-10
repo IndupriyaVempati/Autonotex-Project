@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import api from '../utils/api';
 
 const QuestionsView = ({ questions = [], docId }) => {
     const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -13,19 +14,11 @@ const QuestionsView = ({ questions = [], docId }) => {
             setError(null);
             setAnswer(null);
 
-            const response = await fetch('http://localhost:5001/question', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    question, 
-                    doc_id: docId 
-                })
+            const response = await api.post('/question', {
+                question,
+                doc_id: docId
             });
-
-            if (!response.ok) throw new Error('Failed to get answer');
-
-            const data = await response.json();
-            setAnswer(data);
+            setAnswer(response.data);
         } catch (err) {
             setError(err.message);
         } finally {
@@ -114,7 +107,7 @@ const QuestionsView = ({ questions = [], docId }) => {
             )}
 
             {answer && (
-                <div className="bg-gradient-to-br from-slate-700/50 to-slate-800/50 rounded-lg p-4 border border-accent/30 space-y-4">
+                <div className="bg-linear-to-br from-slate-700/50 to-slate-800/50 rounded-lg p-4 border border-accent/30 space-y-4">
                     <div>
                         <h3 className="text-sm font-bold text-accent mb-2">📌 Question</h3>
                         <p className="text-sm text-gray-100 font-medium">{answer.question}</p>

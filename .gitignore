@@ -12,6 +12,7 @@ __pycache__/
 # Build Outputs
 dist/
 build/
+subject_materials/
 
 # Uploads & Media
 /server/uploads/

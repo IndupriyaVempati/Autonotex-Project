@@ -67,7 +67,7 @@ const KnowledgeGraph = ({ data, onNodeClick }) => {
     }, [onNodeClick]);
 
     return (
-        <div className="w-full h-full min-h-[500px] glass-panel p-4 relative overflow-hidden">
+        <div className="w-full h-full min-h-125 glass-panel p-4 relative overflow-hidden">
             <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-accent/20 rounded-full border border-accent/50 text-xs text-accent text-center">
                 Interactive Knowledge Graph
             </div>

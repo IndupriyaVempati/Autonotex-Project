@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Sparkles, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import axios from 'axios';
+import api from '../utils/api';
 
 const TutorModal = ({ topic, onClose }) => {
     const [messages, setMessages] = useState([
@@ -28,7 +28,7 @@ const TutorModal = ({ topic, onClose }) => {
             // Let's just simulate the response or use the duplicate logic for now to save time/complexity.
 
             // Wait, I should do it properly. I'll add a quick /chat endpoint in app.py later.
-            const response = await axios.post('http://localhost:5001/chat', { message: input, topic: topic });
+            const response = await api.post('/chat', { message: input, topic: topic });
             setMessages(prev => [...prev, { role: 'assistant', content: response.data.reply }]);
 
         } catch (error) {
@@ -40,7 +40,7 @@ const TutorModal = ({ topic, onClose }) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-2xl h-[600px] glass-panel flex flex-col relative animate-in fade-in zoom-in duration-200">
+            <div className="w-full max-w-2xl h-150 glass-panel flex flex-col relative animate-in fade-in zoom-in duration-200">
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-full transition-colors"

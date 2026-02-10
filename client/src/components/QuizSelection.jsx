@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Loader, BookOpen, Play } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const QuizSelection = ({ onQuizStart }) => {
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [scope, setScope] = useState('shared');
+    const [questionCount, setQuestionCount] = useState(15);
 
     useEffect(() => {
         fetchSubjects();
-    }, []);
+    }, [scope]);
 
     const fetchSubjects = async () => {
         try {
-            const response = await axios.get('http://localhost:5001/subjects');
+            const response = await api.get('/subjects', { params: { scope } });
             setSubjects(response.data.subjects || []);
         } catch (error) {
             console.error("Failed to fetch subjects", error);
@@ -33,6 +35,46 @@ const QuizSelection = ({ onQuizStart }) => {
                 </div>
             </div>
 
+            <div className="px-6 pt-4 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">Source:</span>
+                    <button
+                        type="button"
+                        onClick={() => setScope('shared')}
+                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                            scope === 'shared'
+                                ? 'bg-accent/20 text-accent border-accent/40'
+                                : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        Admin Library
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setScope('private')}
+                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                            scope === 'private'
+                                ? 'bg-accent/20 text-accent border-accent/40'
+                                : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        My Library
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-xs text-gray-400">Questions:</span>
+                    <input
+                        type="number"
+                        min="5"
+                        max="30"
+                        value={questionCount}
+                        onChange={(e) => setQuestionCount(Number(e.target.value) || 15)}
+                        className="w-20 px-2 py-1 rounded-lg bg-slate-900/70 border border-white/10 text-white text-xs"
+                    />
+                </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 {loading ? (
                     <div className="flex items-center justify-center h-full">
@@ -48,7 +90,7 @@ const QuizSelection = ({ onQuizStart }) => {
                         {subjects.map((subject) => (
                             <button
                                 key={subject}
-                                onClick={() => onQuizStart(subject)}
+                                onClick={() => onQuizStart(subject, scope, questionCount)}
                                 className="p-4 rounded-lg border border-accent/30 bg-accent/5 hover:bg-accent/15 transition-all group"
                             >
                                 <div className="flex items-start justify-between mb-2">

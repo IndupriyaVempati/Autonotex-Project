@@ -16,12 +16,14 @@ class Orchestrator:
         self.qa_agent = QAAgent()
         self.db_service = DBService()
         self.vector_db = VectorDBService()
+        self.default_scope = "private"
 
     
-    def handle_multiple_uploads(self, file_paths, file_types):
+    def handle_multiple_uploads(self, file_paths, file_types, user_id: str, scope: str = None):
         combined_text = ""
         doc_id = str(uuid.uuid4())[:8]
         self.multimodal_agent.source_diagrams = []
+        resolved_scope = scope if scope in {"private", "shared"} else self.default_scope
         
         # 1. Process All Content
         for path, f_type in zip(file_paths, file_types):
@@ -50,7 +52,9 @@ class Orchestrator:
         metadata = {
             "doc_id": doc_id,
             "subject": self._extract_subject(notes_text),
-            "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+            "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
+            "user_id": user_id,
+            "scope": resolved_scope
         }
         
         chunk_ids = self.vector_db.add_document(combined_text, metadata, doc_id)
@@ -67,7 +71,9 @@ class Orchestrator:
             "questions": questions,
             "diagrams": self.notes_agent.diagrams if hasattr(self.notes_agent, 'diagrams') else [],
             "subject": self.notes_agent.subject if hasattr(self.notes_agent, 'subject') else "General",
-            "source_diagrams": self.multimodal_agent.source_diagrams
+            "source_diagrams": self.multimodal_agent.source_diagrams,
+            "user_id": user_id,
+            "scope": resolved_scope
         }
         self.db_service.save_note(note_data, doc_id)
 
@@ -82,10 +88,10 @@ class Orchestrator:
             "concept_count": len(concept_ids)
         }
 
-    def handle_upload(self, file_path, file_type):
-        return self.handle_multiple_uploads([file_path], [file_type])
+    def handle_upload(self, file_path, file_type, user_id: str, scope: str = None):
+        return self.handle_multiple_uploads([file_path], [file_type], user_id, scope)
 
-    def generate_notes_for_subject(self, subject: str) -> dict:
+    def generate_notes_for_subject(self, subject: str, user_id: str, is_admin: bool = False, scope: str = None) -> dict:
         """Retrieve notes using RAG (vector DB) or DB for a subject-only request (no generation)."""
         if not subject:
             return {}
@@ -95,11 +101,14 @@ class Orchestrator:
 
         rag_results = []
         if self.vector_db and getattr(self.vector_db, "index", None):
-            rag_results = self.vector_db.semantic_search(
+            rag_results = self._scoped_rag_search(
                 subject,
                 collection_name="notes",
                 n_results=8,
-                subject=subject
+                subject=subject,
+                user_id=user_id,
+                is_admin=is_admin,
+                scope=scope
             )
 
         notes_text = ""
@@ -108,7 +117,7 @@ class Orchestrator:
             notes_text = "\n\n".join(chunks).strip()
 
         # Also try MongoDB for richer artifacts (graph/questions) if available
-        notes = self.db_service.search_notes_by_subject(subject)
+        notes = self.db_service.search_notes_by_subject(subject, user_id, is_admin, scope)
         note = None
         if notes:
             notes_sorted = sorted(
@@ -134,7 +143,7 @@ class Orchestrator:
             "mode": "subject"
         }
 
-    def get_quiz_questions(self, subject: str) -> list:
+    def get_quiz_questions(self, subject: str, user_id: str, is_admin: bool = False, count: int = 15, scope: str = None) -> list:
         """Get quiz questions - use stored questions if available, otherwise generate from RAG content."""
         if not subject:
             return []
@@ -143,7 +152,7 @@ class Orchestrator:
         print(f"get_quiz_questions: Looking for questions for {subject}")
         
         # Step 1: Check if questions already exist in MongoDB for this subject
-        notes = self.db_service.search_notes_by_subject(subject)
+        notes = self.db_service.search_notes_by_subject(subject, user_id, is_admin, scope)
         if notes:
             note = sorted(
                 notes,
@@ -166,11 +175,14 @@ class Orchestrator:
         # Step 2: If no valid stored questions, generate from RAG content
         print(f"get_quiz_questions: Generating new questions from RAG + LLM")
         
-        rag_results = self.vector_db.semantic_search(
+        rag_results = self._scoped_rag_search(
             subject,
             collection_name="notes",
-            n_results=8,
-            subject=subject
+            n_results=min(max(8, count * 2), 24),
+            subject=subject,
+            user_id=user_id,
+            is_admin=is_admin,
+            scope=scope
         )
 
         if not rag_results or len(rag_results) == 0:
@@ -185,18 +197,18 @@ class Orchestrator:
         # Pass the content to LLM for question generation (only if LLM available)
         if self.qa_agent and self.qa_agent.groq_client:
             print(f"get_quiz_questions: Calling LLM to generate questions...")
-            questions = self.qa_agent.generate_questions(content, 10)
+            questions = self.qa_agent.generate_questions(content, count)
             if questions and len(questions) > 0:
                 print(f"get_quiz_questions: LLM generated {len(questions)} questions, returning")
                 return questions
         
         # Fallback if LLM is not available
         print(f"get_quiz_questions: LLM unavailable, using fallback questions")
-        return self._get_fallback_rag_questions(subject)
+        return self._get_fallback_rag_questions(subject, count)
 
-    def _get_fallback_rag_questions(self, subject: str) -> list:
+    def _get_fallback_rag_questions(self, subject: str, count: int = 15) -> list:
         """Fallback questions based on subject when RAG/LLM fails."""
-        return [
+        base = [
             {
                 "question": f"What is the primary focus of {subject}?",
                 "options": [
@@ -207,8 +219,11 @@ class Orchestrator:
                 ],
                 "correct_answer": 0,
                 "explanation": f"The main focus is understanding core {subject} concepts.",
+                "explanation_long": f"{subject} emphasizes understanding core ideas and how they connect, not just rote memorization.",
                 "category": subject,
+                "topic": "Fundamentals",
                 "difficulty": "easy",
+                "learning_suggestion": f"Review the key definitions and high-level goals of {subject}.",
                 "source": "Fallback"
             },
             {
@@ -221,11 +236,17 @@ class Orchestrator:
                 ],
                 "correct_answer": 2,
                 "explanation": f"The concepts in {subject} have extensive real-world applications.",
+                "explanation_long": f"Most {subject} concepts translate directly into real systems and workflows used in practice.",
                 "category": subject,
+                "topic": "Applications",
                 "difficulty": "medium",
+                "learning_suggestion": f"Look for case studies that show {subject} in real systems.",
                 "source": "Fallback"
             }
         ]
+        if count <= len(base):
+            return base[:count]
+        return base
 
     def _format_questions(self, questions: list, subject: str) -> list:
         """Format and validate questions, accepting both old and new formats."""
@@ -261,22 +282,43 @@ class Orchestrator:
                 "options": options,
                 "correct_answer": correct_answer,
                 "explanation": q.get("explanation", q.get("explanation_text", "")),
+                "explanation_long": q.get("explanation_long", q.get("explanation", q.get("explanation_text", ""))),
+                "learning_suggestion": q.get("learning_suggestion", ""),
                 "topic": q.get("topic", q.get("category", subject)),
                 "category": q.get("category", subject),
+                "difficulty": q.get("difficulty", "medium"),
                 "source": "From database"
             })
         
         print(f"_format_questions: Formatted {len(formatted)} out of {len(questions)} questions")
         return formatted
     
-    def search_knowledge_base(self, query: str, doc_id: str = None) -> dict:
+    def search_knowledge_base(self, query: str, user_id: str, doc_id: str = None, is_admin: bool = False) -> dict:
         """Search for relevant content using RAG."""
         print(f"Orchestrator: Searching for '{query}'")
         
         # Search both notes and concepts
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            future_notes = executor.submit(self.vector_db.semantic_search, query, "notes", 5, doc_id)
-            future_concepts = executor.submit(self.vector_db.semantic_search, query, "concepts", 3, doc_id)
+            future_notes = executor.submit(
+                self._scoped_rag_search,
+                query,
+                "notes",
+                5,
+                doc_id,
+                None,
+                user_id,
+                is_admin
+            )
+            future_concepts = executor.submit(
+                self._scoped_rag_search,
+                query,
+                "concepts",
+                3,
+                doc_id,
+                None,
+                user_id,
+                is_admin
+            )
             
             note_results = future_notes.result()
             concept_results = future_concepts.result()
@@ -287,12 +329,12 @@ class Orchestrator:
             "concept_results": concept_results
         }
     
-    def get_concept_details(self, concept_label: str, doc_id: str = None) -> dict:
+    def get_concept_details(self, concept_label: str, user_id: str, doc_id: str = None, is_admin: bool = False) -> dict:
         """Get detailed information about a specific concept."""
         print(f"Orchestrator: Getting details for concept '{concept_label}'")
         
         # Get related content
-        related = self.vector_db.get_related_content(concept_label, 3)
+        related = self._scoped_rag_search(concept_label, "notes", 3, doc_id, None, user_id, is_admin)
         
         # Generate detailed explanation
         context = "\n".join([r.get('content', '') for r in related[:2]])
@@ -304,12 +346,12 @@ class Orchestrator:
             "related_content": related
         }
     
-    def answer_user_question(self, question: str, doc_id: str = None) -> dict:
+    def answer_user_question(self, question: str, user_id: str, doc_id: str = None, is_admin: bool = False) -> dict:
         """Answer a user question using RAG."""
         print(f"Orchestrator: Answering question: '{question}'")
         
         # Search for relevant context
-        search_results = self.search_knowledge_base(question, doc_id)
+        search_results = self.search_knowledge_base(question, user_id, doc_id, is_admin)
         note_results = search_results.get('note_results', [])
 
         if not note_results:
@@ -355,5 +397,107 @@ class Orchestrator:
         if match:
             return match.group(1).strip()
         return "General"
+
+    def _scoped_rag_search(
+        self,
+        query: str,
+        collection_name: str = "notes",
+        n_results: int = 5,
+        doc_id: str = None,
+        subject: str = None,
+        user_id: str = None,
+        is_admin: bool = False,
+        scope: str = None
+    ) -> list:
+        if not self.vector_db or not getattr(self.vector_db, "index", None):
+            return []
+
+        if scope == "shared":
+            shared_filter = {"scope": {"$eq": "shared"}}
+            if doc_id:
+                shared_filter["doc_id"] = {"$eq": doc_id}
+            if subject:
+                shared_filter["subject"] = {"$eq": subject}
+
+            return self.vector_db.semantic_search(
+                query,
+                collection_name=collection_name,
+                n_results=n_results,
+                metadata_filter=shared_filter
+            )
+
+        if scope == "private":
+            if not user_id:
+                return []
+            private_filter = {"scope": {"$eq": "private"}, "user_id": {"$eq": user_id}}
+            if doc_id:
+                private_filter["doc_id"] = {"$eq": doc_id}
+            if subject:
+                private_filter["subject"] = {"$eq": subject}
+
+            return self.vector_db.semantic_search(
+                query,
+                collection_name=collection_name,
+                n_results=n_results,
+                metadata_filter=private_filter
+            )
+
+        if is_admin:
+            admin_filter = {}
+            if doc_id:
+                admin_filter["doc_id"] = {"$eq": doc_id}
+            if subject:
+                admin_filter["subject"] = {"$eq": subject}
+
+            return self.vector_db.semantic_search(
+                query,
+                collection_name=collection_name,
+                n_results=n_results,
+                metadata_filter=admin_filter or None
+            )
+
+        shared_filter = {"scope": {"$eq": "shared"}}
+        if doc_id:
+            shared_filter["doc_id"] = {"$eq": doc_id}
+        if subject:
+            shared_filter["subject"] = {"$eq": subject}
+
+        shared_results = self.vector_db.semantic_search(
+            query,
+            collection_name=collection_name,
+            n_results=n_results,
+            metadata_filter=shared_filter
+        )
+
+        private_results = []
+        if user_id:
+            private_filter = {"scope": {"$eq": "private"}, "user_id": {"$eq": user_id}}
+            if doc_id:
+                private_filter["doc_id"] = {"$eq": doc_id}
+            if subject:
+                private_filter["subject"] = {"$eq": subject}
+
+            private_results = self.vector_db.semantic_search(
+                query,
+                collection_name=collection_name,
+                n_results=n_results,
+                metadata_filter=private_filter
+            )
+
+        return self._merge_rag_results(shared_results, private_results, n_results)
+
+    def _merge_rag_results(self, shared_results: list, private_results: list, limit: int) -> list:
+        seen = set()
+        merged = []
+
+        for item in (shared_results or []) + (private_results or []):
+            item_id = item.get("id")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            merged.append(item)
+
+        merged.sort(key=lambda x: x.get("distance", 0), reverse=True)
+        return merged[:limit]
 
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Loader } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const UploadZone = ({ onAnalysisComplete }) => {
     const [isDragging, setIsDragging] = useState(false);
@@ -32,10 +32,9 @@ const UploadZone = ({ onAnalysisComplete }) => {
         for (let i = 0; i < fileList.length; i++) {
             formData.append('files', fileList[i]);
         }
-
         try {
             // Assuming backend runs on 5001
-            const response = await axios.post('http://localhost:5001/upload', formData, {
+            const response = await api.post('/upload', formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data'
                 }

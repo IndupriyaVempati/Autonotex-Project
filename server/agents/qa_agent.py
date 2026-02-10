@@ -43,30 +43,35 @@ class QAAgent(BaseAgent):
                 messages=[
                     {
                         "role": "system",
-                        "content": f"""You are an expert educator creating multiple choice quiz questions.
-                        
+                        "content": f"""You are an expert educator creating high-quality multiple choice quiz questions.
+
 Generate {num_questions} multiple choice questions about the provided content.
 Each question must have 4 options (A, B, C, D) and one correct answer.
+Include a mix of easy, medium, and hard difficulties.
 
 Return ONLY a JSON object with this exact structure:
 {{
-  "questions": [
-    {{
-      "question": "What is...?",
-      "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
-      "correct_answer": 0,
-      "explanation": "Why this is correct...",
-      "category": "Topic Name",
-      "difficulty": "medium"
-    }}
-  ]
+    "questions": [
+        {{
+            "question": "What is...?",
+            "options": ["Option A text", "Option B text", "Option C text", "Option D text"],
+            "correct_answer": 0,
+            "explanation": "Short explanation",
+            "explanation_long": "Longer, step-by-step explanation",
+            "learning_suggestion": "What to review if the learner got this wrong",
+            "topic": "Specific topic",
+            "category": "Topic Name",
+            "difficulty": "easy|medium|hard"
+        }}
+    ]
 }}
 
 IMPORTANT:
 - options must be a list of 4 strings (NOT objects)
-- correct_answer must be 0, 1, 2, or 3 (the index of the correct option)
-- explanation should briefly explain why the answer is correct
-- Make questions test understanding, not just memorization"""
+- correct_answer must be 0, 1, 2, or 3
+- explanation_long should be richer than explanation
+- learning_suggestion should be actionable
+- Make questions test understanding and application, not just memorization"""
                     },
                     {
                         "role": "user",
@@ -99,6 +104,9 @@ IMPORTANT:
                         "options": options,
                         "correct_answer": correct_answer,
                         "explanation": q.get("explanation", ""),
+                        "explanation_long": q.get("explanation_long", q.get("explanation", "")),
+                        "learning_suggestion": q.get("learning_suggestion", ""),
+                        "topic": q.get("topic", q.get("category", "General")),
                         "category": q.get("category", "General"),
                         "difficulty": q.get("difficulty", "medium")
                     })
@@ -213,6 +221,9 @@ Provide a comprehensive explanation."""
                 "options": ["Understanding concepts", "Memorizing facts", "Practical application", "Historical context"],
                 "correct_answer": 0,
                 "explanation": "The material focuses on helping students understand core concepts.",
+                "explanation_long": "The most important goal is building a conceptual foundation so learners can apply ideas later.",
+                "learning_suggestion": "Review the core definitions and relationships between the main ideas.",
+                "topic": "Fundamentals",
                 "category": "General",
                 "difficulty": "easy"
             },
@@ -221,6 +232,9 @@ Provide a comprehensive explanation."""
                 "options": ["They don't apply", "Limited application", "Highly applicable in practice", "Only theoretical"],
                 "correct_answer": 2,
                 "explanation": "These concepts have strong real-world applications.",
+                "explanation_long": "These ideas show up in real systems and workflows, which is why application-focused learning matters.",
+                "learning_suggestion": "Look for one real-world example and map each concept to that example.",
+                "topic": "Applications",
                 "category": "Application",
                 "difficulty": "medium"
             },
@@ -229,6 +243,9 @@ Provide a comprehensive explanation."""
                 "options": ["Memorization alone", "Passive reading", "Active learning and practice", "Watching videos"],
                 "correct_answer": 2,
                 "explanation": "Active learning and practice is the best approach to mastering these concepts.",
+                "explanation_long": "Hands-on practice reveals gaps and reinforces understanding better than passive exposure.",
+                "learning_suggestion": "Create a short practice task that uses one key concept and reflect on the outcome.",
+                "topic": "Learning Strategy",
                 "category": "Learning Strategy",
                 "difficulty": "hard"
             }

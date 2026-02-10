@@ -7,6 +7,10 @@ class Config:
     MONGO_URI = os.getenv('MONGO_URI')
     GROQ_API_KEY = os.getenv('GROQ_API_KEY')
     UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'dev-change-me')
+    JWT_EXPIRES_MIN = int(os.getenv('JWT_EXPIRES_MIN', '1440'))
+    ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
+    ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
     
     @staticmethod
     def init_app(app):

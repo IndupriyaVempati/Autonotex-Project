@@ -16,3 +16,4 @@ sentence-transformers
 openai
 pillow
 numpy
+PyJWT

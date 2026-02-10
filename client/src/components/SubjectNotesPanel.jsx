@@ -1,10 +1,44 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader, BookOpen } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/api';
 
 const SubjectNotesPanel = ({ onAnalysisComplete }) => {
     const [subjectInput, setSubjectInput] = useState('');
     const [isFetching, setIsFetching] = useState(false);
+    const [subjects, setSubjects] = useState([]);
+    const [subjectsLoading, setSubjectsLoading] = useState(true);
+    const [subjectsError, setSubjectsError] = useState(null);
+    const [scope, setScope] = useState('shared');
+    const [hint, setHint] = useState(null);
+
+    useEffect(() => {
+        let active = true;
+        const fetchSubjects = async () => {
+            setSubjectsLoading(true);
+            setSubjectsError(null);
+            try {
+                const response = await api.get('/subjects', { params: { scope } });
+                if (!active) return;
+                setSubjects(response.data.subjects || []);
+            } catch {
+                if (!active) return;
+                setSubjectsError('Unable to load subjects.');
+            } finally {
+                if (active) {
+                    setSubjectsLoading(false);
+                }
+            }
+        };
+
+        fetchSubjects();
+        return () => {
+            active = false;
+        };
+    }, [scope]);
+
+    useEffect(() => {
+        setHint(null);
+    }, [scope]);
 
     const fetchSubjectNotes = async () => {
         if (!subjectInput.trim()) {
@@ -13,14 +47,21 @@ const SubjectNotesPanel = ({ onAnalysisComplete }) => {
         }
 
         setIsFetching(true);
+        setHint(null);
         try {
-            const response = await axios.post('http://localhost:5001/generate/notes/subject', {
-                subject: subjectInput.trim()
+            const response = await api.post('/generate/notes/subject', {
+                subject: subjectInput.trim(),
+                scope
             });
             onAnalysisComplete(response.data);
         } catch (error) {
             console.error("Subject notes fetch failed", error);
-            alert("No notes found for this subject or backend is not running.");
+            const status = error?.response?.status;
+            if (status === 404 && scope === 'private') {
+                setHint('No notes found in My Library. Try the Admin Library.');
+            } else {
+                alert("No notes found for this subject or backend is not running.");
+            }
         } finally {
             setIsFetching(false);
         }
@@ -35,7 +76,9 @@ const SubjectNotesPanel = ({ onAnalysisComplete }) => {
                     </div>
                     <div>
                         <h3 className="text-lg font-semibold text-white">Subject Notes</h3>
-                        <p className="text-xs text-gray-400">Fetch from your library</p>
+                        <p className="text-xs text-gray-400">
+                            {scope === 'shared' ? 'Fetch from Admin Library' : 'Fetch from My Library'}
+                        </p>
                     </div>
                 </div>
 
@@ -61,6 +104,68 @@ const SubjectNotesPanel = ({ onAnalysisComplete }) => {
                             'Fetch Notes'
                         )}
                     </button>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-400">Source:</span>
+                    <button
+                        type="button"
+                        onClick={() => setScope('shared')}
+                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                            scope === 'shared'
+                                ? 'bg-accent/20 text-accent border-accent/40'
+                                : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        Admin Library
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setScope('private')}
+                        className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                            scope === 'private'
+                                ? 'bg-accent/20 text-accent border-accent/40'
+                                : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                        My Library
+                    </button>
+                    {hint && (
+                        <div className="ml-auto flex items-center gap-2">
+                            <div className="text-xs text-yellow-300">{hint}</div>
+                            <button
+                                type="button"
+                                onClick={() => setScope('shared')}
+                                className="text-xs px-2 py-1 rounded-full border border-yellow-400/40 text-yellow-200 hover:bg-yellow-500/10"
+                            >
+                                Switch to Admin
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <div className="mt-4">
+                    <div className="text-xs text-gray-400 mb-2">Available subjects</div>
+                    {subjectsLoading ? (
+                        <div className="text-xs text-gray-500">Loading subjects...</div>
+                    ) : subjectsError ? (
+                        <div className="text-xs text-red-300">{subjectsError}</div>
+                    ) : subjects.length === 0 ? (
+                        <div className="text-xs text-gray-500">No subjects found yet.</div>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            {subjects.map((subject) => (
+                                <button
+                                    key={subject}
+                                    type="button"
+                                    onClick={() => setSubjectInput(subject)}
+                                    className="text-xs px-3 py-1 rounded-full border border-white/10 bg-white/5 text-gray-300 hover:bg-white/10"
+                                >
+                                    {subject}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

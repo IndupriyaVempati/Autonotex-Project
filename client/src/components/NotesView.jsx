@@ -20,7 +20,7 @@ const NotesView = ({ notes, onTopicClick }) => {
                 <div className="prose prose-invert prose-sm max-w-none">
                     <ReactMarkdown
                         components={{
-                            h1: ({ node, ...props }) => <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-accent bg-clip-text text-transparent mb-4 border-b border-white/10 pb-2" {...props} />,
+                            h1: ({ node, ...props }) => <h1 className="text-2xl font-bold bg-linear-to-r from-white to-accent bg-clip-text text-transparent mb-4 border-b border-white/10 pb-2" {...props} />,
                             h2: ({ node, ...props }) => <h2 className="text-xl font-semibold text-white mt-6 mb-3 flex items-center gap-2" {...props} />,
                             h3: ({ node, ...props }) => <h3 className="text-lg font-medium text-accent mt-4 mb-2" {...props} />,
                             ul: ({ node, ...props }) => <ul className="list-disc pl-5 space-y-1 text-gray-300" {...props} />,
@@ -48,7 +48,7 @@ const NotesView = ({ notes, onTopicClick }) => {
                     </ReactMarkdown>
                 </div>
 
-                <div className="mt-8 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-blue-500/10 border border-white/10">
+                <div className="mt-8 p-4 rounded-xl bg-linear-to-br from-green-500/10 to-blue-500/10 border border-white/10">
                     <div className="flex items-center gap-2 mb-2 text-green-400">
                         <Sparkles className="w-4 h-4" />
                         <span className="text-sm font-semibold">Adaptive Learning Path Detected</span>

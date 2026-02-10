@@ -1,29 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Loader, ChevronRight, ChevronLeft, CheckCircle, XCircle } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/api';
 
-const QuizTaker = ({ subject, onQuizComplete, onBack }) => {
+const QuizTaker = ({ subject, scope, count, onQuizComplete, onBack }) => {
     const [questions, setQuestions] = useState([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [loading, setLoading] = useState(true);
     const [userAnswers, setUserAnswers] = useState({});
     const [showFeedback, setShowFeedback] = useState(false);
 
-    useEffect(() => {
-        fetchQuizQuestions();
-    }, [subject]);
-
-    const fetchQuizQuestions = async () => {
+    const fetchQuizQuestions = useCallback(async () => {
         try {
-            const response = await axios.get(`http://localhost:5001/quiz/questions/${subject}`);
+            const response = await api.get(`/quiz/questions/${subject}`, {
+                params: { scope, count }
+            });
             setQuestions(response.data.questions || []);
-            setLoading(false);
+            setCurrentQuestionIndex(0);
+            setUserAnswers({});
+            setShowFeedback(false);
         } catch (error) {
             console.error("Failed to fetch quiz questions", error);
             alert("Failed to load quiz questions");
             onBack();
+        } finally {
+            setLoading(false);
         }
-    };
+    }, [subject, scope, count, onBack]);
+
+    useEffect(() => {
+        fetchQuizQuestions();
+    }, [fetchQuizQuestions]);
 
     if (loading) {
         return (
@@ -103,7 +109,7 @@ const QuizTaker = ({ subject, onQuizComplete, onBack }) => {
                 </div>
                 <div className="w-full bg-white/10 rounded-full h-2">
                     <div
-                        className="bg-gradient-to-r from-accent to-blue-500 h-2 rounded-full transition-all"
+                        className="bg-linear-to-r from-accent to-blue-500 h-2 rounded-full transition-all"
                         style={{ width: `${progress}%` }}
                     />
                 </div>
@@ -116,6 +122,19 @@ const QuizTaker = ({ subject, onQuizComplete, onBack }) => {
                     <h2 className="text-xl font-semibold text-white mb-6">
                         {currentQuestion.question}
                     </h2>
+
+                    <div className="flex flex-wrap gap-2 mb-4">
+                        {(currentQuestion.topic || currentQuestion.category) && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300">
+                                {currentQuestion.topic || currentQuestion.category}
+                            </span>
+                        )}
+                        {currentQuestion.difficulty && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-accent/10 border border-accent/30 text-accent">
+                                {currentQuestion.difficulty}
+                            </span>
+                        )}
+                    </div>
 
                     {/* Options */}
                     {options.length === 0 ? (
@@ -180,8 +199,13 @@ const QuizTaker = ({ subject, onQuizComplete, onBack }) => {
                                 {isCorrect ? '✓ Correct!' : '✗ Incorrect'}
                             </p>
                             <p className="text-gray-300 text-sm">
-                                {currentQuestion.explanation || 'Good try! Keep learning.'}
+                                {currentQuestion.explanation_long || currentQuestion.explanation || 'Good try! Keep learning.'}
                             </p>
+                            {!isCorrect && currentQuestion.learning_suggestion && (
+                                <p className="text-xs text-gray-400 mt-2">
+                                    Learn next: {currentQuestion.learning_suggestion}
+                                </p>
+                            )}
                         </div>
                     )}
                 </div>
