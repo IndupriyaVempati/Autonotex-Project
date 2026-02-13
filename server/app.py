@@ -2,11 +2,13 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
+import re
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from agents.orchestrator import Orchestrator
+from services.web_search_service import WebSearchService
 from config import Config
 
 # Load environment variables
@@ -17,6 +19,10 @@ CORS(app, supports_credentials=True)
 Config.init_app(app)
 
 orchestrator = Orchestrator()
+
+# Web search service – reuses the orchestrator's Groq client when available
+_groq_client = getattr(orchestrator.qa_agent, 'groq_client', None)
+web_search = WebSearchService(groq_client=_groq_client)
 
 def _create_token(user: dict) -> str:
     payload = {
@@ -58,6 +64,21 @@ def _get_current_user():
         return None
     except jwt.InvalidTokenError:
         return None
+
+def _dedupe_paragraphs(text: str) -> str:
+    if not text:
+        return text
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    seen = set()
+    kept = []
+    for paragraph in paragraphs:
+        normalized = re.sub(r"[^a-z0-9\s]", " ", paragraph.lower())
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        kept.append(paragraph)
+    return "\n\n".join(kept)
 
 def require_auth(fn):
     @wraps(fn)
@@ -336,6 +357,48 @@ def get_all_notes():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+@app.route('/notes/combined', methods=['GET'])
+@require_auth
+def get_combined_notes():
+    try:
+        limit = request.args.get('limit', 200, type=int)
+        scope = (request.args.get('scope') or '').strip().lower() or None
+
+        user = request.user
+        is_admin = user.get("role") == "admin"
+        notes = orchestrator.db_service.get_all_notes(limit, str(user.get("_id")), is_admin)
+
+        if scope in {"shared", "private"}:
+            notes = [n for n in notes if n.get("scope") == scope and (scope == "shared" or n.get("user_id") == str(user.get("_id")))]
+
+        notes_sorted = sorted(
+            notes,
+            key=lambda n: n.get("updated_at") or n.get("created_at") or 0,
+            reverse=True
+        )
+
+        sections = []
+        for note in notes_sorted:
+            title = note.get("subject") or "Untitled"
+            doc_id = note.get("doc_id") or "unknown"
+            notes_text = note.get("notes_text") or note.get("notes") or ""
+            if not notes_text:
+                continue
+            sections.append(f"## Document: {title} ({doc_id})\n\n{notes_text}")
+
+        combined = "\n\n---\n\n".join(sections)
+        combined = _dedupe_paragraphs(combined)
+
+        return jsonify({
+            "notes": combined,
+            "count": len(sections),
+            "scope": scope
+        }), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/generate/notes/subject', methods=['POST'])
 @require_auth
 def generate_notes_for_subject():
@@ -400,6 +463,155 @@ def get_quiz_questions(subject):
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+@app.route('/web-search', methods=['POST'])
+@require_auth
+def web_search_concept():
+    """
+    Search the web for a concept and return summarised study notes.
+    Request body: {"concept": "Superkey in DBMS", "context": "optional subject hint"}
+    """
+    try:
+        data = request.json or {}
+        concept = (data.get('concept') or '').strip()
+        context = (data.get('context') or '').strip()
+
+        if not concept:
+            return jsonify({"error": "concept is required"}), 400
+
+        result = web_search.search_and_summarise(concept, context_hint=context)
+        return jsonify(result), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/image-search', methods=['POST'])
+@require_auth
+def image_search_concept():
+    """
+    Search the web for diagrams / images related to a concept.
+    Request body: {"query": "Von Neumann Architecture", "max_results": 12}
+    """
+    try:
+        data = request.json or {}
+        query = (data.get('query') or '').strip()
+        max_results = int(data.get('max_results', 12))
+
+        if not query:
+            return jsonify({"error": "query is required"}), 400
+
+        images = web_search.search_images(query, max_results=min(max_results, 20))
+        return jsonify({"query": query, "images": images}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/notes/<doc_id>/append', methods=['POST'])
+@require_auth
+def append_to_note(doc_id):
+    """
+    Append extra content to an existing note's notes_text.
+    Request body: {"content": "markdown text to append"}
+    """
+    try:
+        data = request.json or {}
+        extra = (data.get('content') or '').strip()
+        if not extra:
+            return jsonify({"error": "content is required"}), 400
+
+        user = request.user
+        is_admin = user.get("role") == "admin"
+        note = orchestrator.db_service.get_note_by_id(doc_id, str(user.get("_id")), is_admin)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+
+        existing = note.get("notes_text") or note.get("notes") or ""
+        updated = existing + "\n\n---\n\n" + extra
+
+        orchestrator.db_service.db.notes.update_one(
+            {"doc_id": doc_id},
+            {"$set": {"notes_text": updated, "notes": updated}}
+        )
+        return jsonify({"status": "appended", "doc_id": doc_id}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/notes/<doc_id>/web-diagrams', methods=['POST'])
+@require_auth
+def add_web_diagram(doc_id):
+    """
+    Save a web-searched diagram image to the note's web_diagrams array.
+    Request body: {"title": "...", "image_url": "...", "thumbnail": "...", "source": "..."}
+    """
+    try:
+        data = request.json or {}
+        image_url = (data.get('image_url') or '').strip()
+        if not image_url:
+            return jsonify({"error": "image_url is required"}), 400
+
+        user = request.user
+        is_admin = user.get("role") == "admin"
+        note = orchestrator.db_service.get_note_by_id(doc_id, str(user.get("_id")), is_admin)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+
+        diagram_entry = {
+            "title": (data.get('title') or '').strip(),
+            "image_url": image_url,
+            "thumbnail": (data.get('thumbnail') or '').strip(),
+            "source": (data.get('source') or '').strip(),
+        }
+
+        # Avoid duplicates by image_url
+        existing = note.get("web_diagrams") or []
+        if any(d.get("image_url") == image_url for d in existing):
+            return jsonify({"status": "already_exists", "doc_id": doc_id, "web_diagrams": existing}), 200
+
+        orchestrator.db_service.db.notes.update_one(
+            {"doc_id": doc_id},
+            {"$push": {"web_diagrams": diagram_entry}}
+        )
+        existing.append(diagram_entry)
+        return jsonify({"status": "added", "doc_id": doc_id, "web_diagrams": existing}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/notes/<doc_id>/web-diagrams/<int:diagram_idx>', methods=['DELETE'])
+@require_auth
+def remove_web_diagram(doc_id, diagram_idx):
+    """Remove a web diagram from the note by its index."""
+    try:
+        user = request.user
+        is_admin = user.get("role") == "admin"
+        note = orchestrator.db_service.get_note_by_id(doc_id, str(user.get("_id")), is_admin)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+
+        existing = note.get("web_diagrams") or []
+        if diagram_idx < 0 or diagram_idx >= len(existing):
+            return jsonify({"error": "Invalid diagram index"}), 400
+
+        existing.pop(diagram_idx)
+        orchestrator.db_service.db.notes.update_one(
+            {"doc_id": doc_id},
+            {"$set": {"web_diagrams": existing}}
+        )
+        return jsonify({"status": "removed", "doc_id": doc_id, "web_diagrams": existing}), 200
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5001))

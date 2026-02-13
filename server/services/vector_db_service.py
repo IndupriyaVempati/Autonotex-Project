@@ -4,6 +4,8 @@ from sentence_transformers import SentenceTransformer
 from datetime import datetime
 from pinecone import Pinecone, ServerlessSpec
 import json
+import re
+from difflib import SequenceMatcher
 
 class VectorDBService:
     def __init__(self):
@@ -62,6 +64,7 @@ class VectorDBService:
         try:
             # Split content into meaningful chunks
             chunks = self.text_splitter.split_text(content)
+            chunks = self._dedupe_chunks(chunks)
             if not chunks:
                 return []
 
@@ -91,6 +94,46 @@ class VectorDBService:
         except Exception as e:
             print(f"VectorDBService Error adding document: {e}")
             return []
+
+    def _dedupe_chunks(self, chunks: list) -> list:
+        seen = set()
+        kept = []
+        recent = []
+        max_recent = 50
+
+        for chunk in chunks:
+            normalized = self._normalize_text(chunk)
+            if not normalized:
+                continue
+
+            if normalized in seen:
+                continue
+
+            is_near_duplicate = False
+            for prev in recent:
+                if SequenceMatcher(None, normalized, prev).ratio() >= 0.92:
+                    is_near_duplicate = True
+                    break
+
+            if is_near_duplicate:
+                continue
+
+            seen.add(normalized)
+            kept.append(chunk)
+            recent.append(normalized)
+            if len(recent) > max_recent:
+                recent.pop(0)
+
+        removed = len(chunks) - len(kept)
+        if removed > 0:
+            print(f"VectorDBService: Deduped {removed} duplicate chunks")
+        return kept
+
+    def _normalize_text(self, text: str) -> str:
+        lowered = text.lower()
+        lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+        lowered = re.sub(r"\s+", " ", lowered).strip()
+        return lowered
 
     def add_concepts(self, concepts: list, metadata: dict, doc_id: str) -> list:
         """

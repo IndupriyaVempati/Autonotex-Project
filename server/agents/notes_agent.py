@@ -1,6 +1,7 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, rate_limit_retry
 import os
 import re
+import math
 from groq import Groq
 
 class NotesAgent(BaseAgent):
@@ -20,13 +21,116 @@ class NotesAgent(BaseAgent):
             return ""
 
         if self.groq_client:
-            notes = self._generate_notes(content)
+            if self._should_use_multi_pass(content):
+                notes = self._generate_notes_multi_pass(content)
+            else:
+                notes = self._generate_notes(content)
             self.subject = self._extract_subject_from_notes(notes)
             return notes
         
         notes = self._generate_fallback(content)
         self.subject = self._extract_subject_from_notes(notes)
         return notes
+
+    def _should_use_multi_pass(self, content: str) -> bool:
+        if self._has_section_markers(content):
+            return True
+        return len(content) > 30000
+
+    def _has_section_markers(self, content: str) -> bool:
+        return "--- Page" in content or "--- Slide" in content or "--- Segment" in content or "--- Source:" in content
+
+    def _generate_notes_multi_pass(self, content: str) -> str:
+        sections = self._split_content_sections(content)
+        if not sections:
+            return self._generate_notes(content)
+
+        output = []
+        total = len(sections)
+        for index, (title, text) in enumerate(sections, start=1):
+            if not text.strip():
+                continue
+            include_subject = index == 1
+            section_notes = self._generate_section_notes(title, text, index, total, include_subject)
+            if section_notes:
+                output.append(section_notes)
+
+        return "\n\n".join(output).strip()
+
+    def _split_content_sections(self, content: str) -> list:
+        sections = []
+        current_title = "Section 1"
+        current_lines = []
+
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("--- ") and stripped.endswith(" ---") and len(stripped) <= 160:
+                if current_lines:
+                    sections.append((current_title, "\n".join(current_lines).strip()))
+                current_title = stripped.strip("-").strip()
+                current_lines = []
+                continue
+            current_lines.append(line)
+
+        if current_lines:
+            sections.append((current_title, "\n".join(current_lines).strip()))
+
+        if not sections:
+            return []
+
+        max_sections = 60
+        if len(sections) <= max_sections:
+            return sections
+
+        group_size = int(math.ceil(len(sections) / max_sections))
+        grouped = []
+        for start in range(0, len(sections), group_size):
+            chunk = sections[start:start + group_size]
+            title = f"Sections {start + 1}-{start + len(chunk)}"
+            text = "\n\n".join([c[1] for c in chunk])
+            grouped.append((title, text))
+        return grouped
+
+    def _generate_section_notes(self, title: str, text: str, index: int, total: int, include_subject: bool) -> str:
+        try:
+            subject_line = "Include a '# Subject: <Subject>' line at the top." if include_subject else "Do not repeat the subject line."
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"""You are a senior professor creating detailed study notes for ONE section of a larger document.
+
+{subject_line}
+Start the section with a heading '## {title}'.
+
+Write detailed, exam-oriented notes for this section only:
+- Explain key concepts step by step
+- Include definitions, examples, and important rules
+- Use bullet points where helpful
+- Avoid referencing other sections
+"""
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Section {index} of {total}.
+
+SECTION CONTENT:
+
+{text[:12000]}"""
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.4,
+                    max_tokens=3000,
+                ),
+                agent_name="NotesAgent"
+            )
+            return chat_completion.choices[0].message.content
+        except Exception as e:
+            print(f"NotesAgent: Section generation error: {e}")
+            return ""
 
     def generate_subject_notes(self, subject: str) -> str:
         """
@@ -46,11 +150,13 @@ class NotesAgent(BaseAgent):
 
     def _generate_notes(self, content):
         try:
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """You are a Senior Professor with 15+ years of experience teaching B.Tech Engineering students (DBMS, OS, CN, ML, DS, AI) and preparing them for Semester exams, GATE, and Technical interviews.
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are a Senior Professor with 15+ years of experience teaching B.Tech Engineering students (DBMS, OS, CN, ML, DS, AI) and preparing them for Semester exams, GATE, and Technical interviews.
 
 CRITICAL INSTRUCTION: Analyze the ENTIRE provided document thoroughly (even if 60+ pages). DO NOT summarize briefly. DO NOT skip details. ASSUME the student has NOT read the document.
 
@@ -178,10 +284,10 @@ CRITICAL RULES FOR OUTPUT
 ✅ Provide context for every concept
 
 Output ONLY the comprehensive notes in Markdown format."""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Generate COMPREHENSIVE EXAM-ORIENTED CLASS NOTES for the following document. 
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Generate COMPREHENSIVE EXAM-ORIENTED CLASS NOTES for the following document. 
                         
 ⚠️ CRITICAL: Generate FULL, DETAILED, EXHAUSTIVE NOTES covering ALL 10 mandatory sections.
 ⚠️ Output should be 5000+ words, covering every concept thoroughly.
@@ -190,11 +296,13 @@ Output ONLY the comprehensive notes in Markdown format."""
 DOCUMENT CONTENT:
 
 {content[:30000]}""",
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.9,
-                max_tokens=6000,
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.9,
+                    max_tokens=6000,
+                ),
+                agent_name="NotesAgent"
             )
             result = chat_completion.choices[0].message.content
             print(f"NotesAgent: Generated notes (length: {len(result)})")
@@ -213,11 +321,13 @@ DOCUMENT CONTENT:
     def _generate_subject_notes(self, subject: str) -> str:
         """Generate comprehensive notes based on subject only."""
         try:
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """You are a Senior Professor with 15+ years of experience teaching B.Tech Engineering students (DBMS, OS, CN, ML, DS, AI) and preparing them for Semester exams, GATE, and Technical interviews.
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are a Senior Professor with 15+ years of experience teaching B.Tech Engineering students (DBMS, OS, CN, ML, DS, AI) and preparing them for Semester exams, GATE, and Technical interviews.
 
 Your goal: Create **FULL-LENGTH, EXAM-ORIENTED CLASS NOTES** for the given SUBJECT using your knowledge. Assume no source document is provided.
 
@@ -280,10 +390,10 @@ CRITICAL RULES FOR OUTPUT
 ✅ Provide context for every concept
 
 Output ONLY the comprehensive notes in Markdown format."""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Generate COMPREHENSIVE EXAM-ORIENTED CLASS NOTES for the subject below.
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Generate COMPREHENSIVE EXAM-ORIENTED CLASS NOTES for the subject below.
 
 ⚠️ CRITICAL: Generate FULL, DETAILED, EXHAUSTIVE NOTES covering ALL 10 mandatory sections.
 ⚠️ Output should be 5000+ words, covering every concept thoroughly.
@@ -292,11 +402,13 @@ Output ONLY the comprehensive notes in Markdown format."""
 SUBJECT:
 {subject}
 """,
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.9,
-                max_tokens=6000,
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.9,
+                    max_tokens=6000,
+                ),
+                agent_name="NotesAgent"
             )
             result = chat_completion.choices[0].message.content
             print(f"NotesAgent: Generated subject notes (length: {len(result)})")

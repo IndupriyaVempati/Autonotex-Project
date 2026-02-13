@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, rate_limit_retry
 import os
 import json
 from groq import Groq
@@ -39,11 +39,13 @@ class QAAgent(BaseAgent):
             return self._fallback_questions()
 
         try:
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""You are an expert educator creating high-quality multiple choice quiz questions.
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": f"""You are an expert educator creating high-quality multiple choice quiz questions.
 
 Generate {num_questions} multiple choice questions about the provided content.
 Each question must have 4 options (A, B, C, D) and one correct answer.
@@ -72,14 +74,16 @@ IMPORTANT:
 - explanation_long should be richer than explanation
 - learning_suggestion should be actionable
 - Make questions test understanding and application, not just memorization"""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Generate {num_questions} multiple choice questions from this content:\n\n{content[:8000]}"
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
-                response_format={"type": "json_object"}
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Generate {num_questions} multiple choice questions from this content:\n\n{content[:8000]}"
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    response_format={"type": "json_object"}
+                ),
+                agent_name="QAAgent"
             )
             result = json.loads(chat_completion.choices[0].message.content)
             questions = result.get('questions', []) if isinstance(result, dict) else result
@@ -134,25 +138,29 @@ IMPORTANT:
             return "Please enable API for question answering."
 
         try:
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """You are an expert tutor providing detailed, clear explanations.
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are an expert tutor providing detailed, clear explanations.
                         Answer the question comprehensively using the provided context.
                         Include examples, reasoning, and any relevant diagrams in markdown format."""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Question: {question}
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Question: {question}
                         
 Context:
 {context[:6000]}
 
 Provide a detailed, educational answer."""
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                ),
+                agent_name="QAAgent"
             )
             return chat_completion.choices[0].message.content
         except Exception as e:
@@ -179,30 +187,34 @@ Provide a detailed, educational answer."""
             }
 
         try:
-            chat_completion = self.groq_client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": """You are an expert educator explaining concepts.
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are an expert educator explaining concepts.
                         Return ONLY a JSON object with:
                         - explanation: Detailed explanation of the concept
                         - examples: 2-3 real-world examples
                         - relatedConcepts: 3-5 related concepts
                         - importance: Why this concept matters
                         - commonMisunderstandings: Common mistakes about this concept"""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Explain the concept: {concept}
+                        },
+                        {
+                            "role": "user",
+                            "content": f"""Explain the concept: {concept}
                         
 Based on this content:
 {content[:5000]}
 
 Provide a comprehensive explanation."""
-                    }
-                ],
-                model="llama-3.3-70b-versatile",
-                response_format={"type": "json_object"}
+                        }
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    response_format={"type": "json_object"}
+                ),
+                agent_name="QAAgent"
             )
             return json.loads(chat_completion.choices[0].message.content)
         except Exception as e:

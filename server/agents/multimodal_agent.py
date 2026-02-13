@@ -67,8 +67,9 @@ class MultimodalAgent(BaseAgent):
         try:
             reader = PdfReader(pdf_path)
             text = ""
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
+            for index, page in enumerate(reader.pages, start=1):
+                page_text = page.extract_text() or ""
+                text += f"\n\n--- Page {index} ---\n{page_text}\n"
             return text if text.strip() else "[Empty PDF]"
         except Exception as e:
             print(f"PDF Error: {e}")
@@ -111,10 +112,12 @@ class MultimodalAgent(BaseAgent):
             from pptx import Presentation
             prs = Presentation(ppt_path)
             text = []
-            for slide in prs.slides:
+            for slide_index, slide in enumerate(prs.slides, start=1):
+                slide_lines = []
                 for shape in slide.shapes:
                     if hasattr(shape, "text"):
-                        text.append(shape.text)
+                        slide_lines.append(shape.text)
+                text.append(f"\n\n--- Slide {slide_index} ---\n" + "\n".join(slide_lines))
             return "\n".join(text)
         except Exception as e:
             print(f"PPT Error: {e}")

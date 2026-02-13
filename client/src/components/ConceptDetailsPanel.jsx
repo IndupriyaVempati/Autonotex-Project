@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 
-const ConceptDetailsPanel = ({ conceptLabel, docId, onClose }) => {
+const ConceptDetailsPanel = ({ conceptLabel, docId, onClose, onNotesUpdated }) => {
     const [details, setDetails] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+
+    // Web search state
+    const [webResult, setWebResult] = useState(null);
+    const [webLoading, setWebLoading] = useState(false);
+    const [webError, setWebError] = useState(null);
+    const [addedToNotes, setAddedToNotes] = useState(false);
 
     useEffect(() => {
         if (!conceptLabel) return;
@@ -125,6 +131,91 @@ const ConceptDetailsPanel = ({ conceptLabel, docId, onClose }) => {
                     </div>
                 </div>
             )}
+
+            {/* ── Web Search Section ── */}
+            <div className="mt-4 pt-4 border-t border-white/10">
+                {!webResult && !webLoading && (
+                    <button
+                        onClick={async () => {
+                            setWebLoading(true);
+                            setWebError(null);
+                            try {
+                                const res = await api.post('/web-search', { concept: conceptLabel });
+                                setWebResult(res.data);
+                            } catch (err) {
+                                setWebError(err?.response?.data?.error || err.message);
+                            } finally {
+                                setWebLoading(false);
+                            }
+                        }}
+                        className="w-full text-sm px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                        🔍 Search Web for "{conceptLabel}"
+                    </button>
+                )}
+
+                {webLoading && (
+                    <div className="text-xs text-gray-400 text-center py-2 animate-pulse">
+                        Searching the web…
+                    </div>
+                )}
+
+                {webError && (
+                    <p className="text-xs text-red-400 mt-2">{webError}</p>
+                )}
+
+                {webResult && (
+                    <div className="mt-3 space-y-3">
+                        <h3 className="text-sm font-semibold text-blue-400">🌐 Web Insights</h3>
+
+                        {/* Summary */}
+                        <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap bg-slate-900/60 p-3 rounded-lg border border-white/10 max-h-48 overflow-y-auto">
+                            {webResult.summary}
+                        </div>
+
+                        {/* Source links */}
+                        {webResult.search_results?.length > 0 && (
+                            <details className="text-xs">
+                                <summary className="text-gray-400 cursor-pointer hover:text-gray-200">
+                                    {webResult.search_results.length} sources
+                                </summary>
+                                <ul className="mt-1 space-y-1 pl-3">
+                                    {webResult.search_results.map((r, i) => (
+                                        <li key={i}>
+                                            <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
+                                                {r.title}
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </details>
+                        )}
+
+                        {/* Add to Notes button */}
+                        {docId && !addedToNotes && (
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        await api.post(`/notes/${docId}/append`, {
+                                            content: `## 🌐 Web Notes: ${conceptLabel}\n\n${webResult.summary}`
+                                        });
+                                        setAddedToNotes(true);
+                                        if (onNotesUpdated) onNotesUpdated();
+                                    } catch (_) {
+                                        setWebError('Failed to add to notes');
+                                    }
+                                }}
+                                className="w-full text-xs px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors"
+                            >
+                                ➕ Add to My Notes
+                            </button>
+                        )}
+                        {addedToNotes && (
+                            <p className="text-xs text-green-400 text-center">✓ Added to notes</p>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

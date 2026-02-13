@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, rate_limit_retry
 import os
 import json
 import re
@@ -33,11 +33,12 @@ class GraphAgent(BaseAgent):
         return self._process_heuristic(content)
 
     def _process_groq_with_retry(self, content, max_retries=3):
-        """Process with Groq and retry on failure."""
-        for attempt in range(max_retries):
-            try:
-                print(f"GraphAgent: Processing content of length {len(content)} (attempt {attempt + 1})")
-                chat_completion = self.groq_client.chat.completions.create(
+        """Process with Groq and retry on failure (with rate-limit backoff + model fallback)."""
+        try:
+            print(f"GraphAgent: Processing content of length {len(content)}")
+            chat_completion = rate_limit_retry(
+                self.groq_client,
+                dict(
                     messages=[
                         {
                             "role": "system",
@@ -57,29 +58,30 @@ class GraphAgent(BaseAgent):
                     ],
                     model="llama-3.3-70b-versatile",
                     response_format={"type": "json_object"}
-                )
-                result = json.loads(chat_completion.choices[0].message.content)
-                print(f"GraphAgent: Raw LLM result - nodes count: {len(result.get('nodes', []))}")
-                
-                # Filter nodes to remove any remaining stop words
-                result['nodes'] = self._filter_stop_word_nodes(result.get('nodes', []))
-                
-                # If after filtering we have 0 nodes, use heuristic fallback
-                if len(result['nodes']) == 0:
-                    print("GraphAgent: LLM extracted no meaningful concepts, falling back to heuristic")
-                    return self._process_heuristic(content)
-                
-                # Ensure all required fields exist
-                if 'concepts' not in result:
-                    result['concepts'] = self._extract_concepts_from_nodes(result.get('nodes', []))
-                
-                print(f"GraphAgent: Successfully processed with Groq. Extracted {len(result['nodes'])} core concepts")
-                return result
-            except Exception as e:
-                print(f"GraphAgent: Groq attempt {attempt + 1} failed: {e}")
-                if attempt == max_retries - 1:
-                    print("GraphAgent: All Groq attempts failed, falling back to heuristic")
-                    return self._process_heuristic(content)
+                ),
+                max_retries=max_retries,
+                agent_name="GraphAgent"
+            )
+            result = json.loads(chat_completion.choices[0].message.content)
+            print(f"GraphAgent: Raw LLM result - nodes count: {len(result.get('nodes', []))}")
+            
+            # Filter nodes to remove any remaining stop words
+            result['nodes'] = self._filter_stop_word_nodes(result.get('nodes', []))
+            
+            # If after filtering we have 0 nodes, use heuristic fallback
+            if len(result['nodes']) == 0:
+                print("GraphAgent: LLM extracted no meaningful concepts, falling back to heuristic")
+                return self._process_heuristic(content)
+            
+            # Ensure all required fields exist
+            if 'concepts' not in result:
+                result['concepts'] = self._extract_concepts_from_nodes(result.get('nodes', []))
+            
+            print(f"GraphAgent: Successfully processed with Groq. Extracted {len(result['nodes'])} core concepts")
+            return result
+        except Exception as e:
+            print(f"GraphAgent: All attempts failed ({e}), falling back to heuristic")
+            return self._process_heuristic(content)
 
     def _extract_concepts_from_nodes(self, nodes):
         """Extract concepts from nodes for detailed view."""

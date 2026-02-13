@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
 import { Trash2, Eye, RefreshCcw } from 'lucide-react';
 
-const LibraryPanel = ({ isAdmin, onLoadDocument }) => {
+const LibraryPanel = ({ isAdmin, onLoadDocument, onLoadCombined }) => {
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -58,13 +58,31 @@ const LibraryPanel = ({ isAdmin, onLoadDocument }) => {
     <div className="glass-panel p-6 rounded-lg border border-white/10 h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white">Library</h3>
-        <button
-          onClick={fetchNotes}
-          className="text-xs px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-2"
-        >
-          <RefreshCcw className="w-3 h-3" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {onLoadCombined && (
+            <>
+              <button
+                onClick={() => onLoadCombined('shared')}
+                className="text-xs px-3 py-1 rounded-lg bg-accent/10 text-accent border border-accent/30"
+              >
+                Study Admin
+              </button>
+              <button
+                onClick={() => onLoadCombined('private')}
+                className="text-xs px-3 py-1 rounded-lg bg-white/5 text-gray-200 border border-white/10"
+              >
+                Study Mine
+              </button>
+            </>
+          )}
+          <button
+            onClick={fetchNotes}
+            className="text-xs px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-2"
+          >
+            <RefreshCcw className="w-3 h-3" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (

@@ -17,3 +17,4 @@ openai
 pillow
 numpy
 PyJWT
+ddgs

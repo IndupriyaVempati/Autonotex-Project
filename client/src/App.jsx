@@ -27,6 +27,7 @@ function App() {
   const [selectedConcept, setSelectedConcept] = useState(null);
   const [activeView, setActiveView] = useState('graph');
   const [sourceDiagrams, setSourceDiagrams] = useState([]);
+  const [webDiagrams, setWebDiagrams] = useState([]);
   const [homeMode, setHomeMode] = useState('upload');
   const [quizMode, setQuizMode] = useState(null); // null, 'selection', 'taking', 'analysis'
   const [quizResult, setQuizResult] = useState(null);
@@ -75,6 +76,7 @@ function App() {
     setQuestionsData(data.questions || []);
     setDocId(data.doc_id);
     setSourceDiagrams(data.source_diagrams || []);
+    setWebDiagrams(data.web_diagrams || []);
     if (data.mode === 'subject') {
       setActiveView('summary');
     } else {
@@ -96,6 +98,7 @@ function App() {
       setQuestionsData(note.questions || []);
       setDocId(note.doc_id || docIdToLoad);
       setSourceDiagrams(note.source_diagrams || []);
+      setWebDiagrams(note.web_diagrams || []);
       setActiveView('summary');
       setQuizMode(null);
     } catch {
@@ -138,6 +141,22 @@ function App() {
       setQuizMode(null);
     } catch {
       alert('Delete failed. Please try again.');
+    }
+  };
+
+  const loadCombinedNotes = async (scope) => {
+    try {
+      const response = await api.get('/notes/combined', { params: { scope } });
+      setGraphData(null);
+      setNotesData(response.data.notes || '');
+      setQuestionsData([]);
+      setDocId(`combined-${scope || 'all'}`);
+      setSourceDiagrams([]);
+      setWebDiagrams([]);
+      setActiveView('summary');
+      setQuizMode(null);
+    } catch {
+      alert('Failed to load combined notes.');
     }
   };
 
@@ -345,7 +364,11 @@ function App() {
                   <SubjectNotesPanel onAnalysisComplete={handleAnalysisComplete} />
                 )}
                 {homeMode === 'library' && (
-                  <LibraryPanel isAdmin={user?.role === 'admin'} onLoadDocument={loadDocument} />
+                  <LibraryPanel
+                    isAdmin={user?.role === 'admin'}
+                    onLoadDocument={loadDocument}
+                    onLoadCombined={loadCombinedNotes}
+                  />
                 )}
               </div>
             </>
@@ -413,13 +436,33 @@ function App() {
 
                 {activeView === 'summary' && (
                   <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-white/10 bg-slate-800/40">
-                    <NotesView notes={stripMermaidBlocks(notesData) || "# Generating notes..."} />
+                    <NotesView
+                      notes={stripMermaidBlocks(notesData) || "# Generating notes..."}
+                      docId={docId}
+                      onNotesUpdated={async () => {
+                        if (docId) {
+                          try {
+                            const res = await api.get(`/notes/${docId}`);
+                            if (res.data) {
+                              setNotesData(res.data.notes_text || res.data.notes || notesData);
+                            }
+                          } catch { /* refresh failed silently */ }
+                        }
+                      }}
+                    />
                   </div>
                 )}
 
                 {activeView === 'diagrams' && (
                   <div className="flex-1 min-h-0 rounded-lg overflow-hidden border border-white/10 bg-slate-800/40 p-4">
-                    <DiagramsView notes={notesData} sourceDiagrams={sourceDiagrams} />
+                    <DiagramsView
+                      notes={notesData}
+                      sourceDiagrams={sourceDiagrams}
+                      graphData={graphData}
+                      docId={docId}
+                      webDiagrams={webDiagrams}
+                      onWebDiagramsUpdated={(updated) => setWebDiagrams(updated)}
+                    />
                   </div>
                 )}
               </div>
@@ -430,6 +473,17 @@ function App() {
                   conceptLabel={selectedConcept}
                   docId={docId}
                   onClose={() => setSelectedConcept(null)}
+                  onNotesUpdated={async () => {
+                    // Refresh notes from server after web content was appended
+                    if (docId) {
+                      try {
+                        const res = await api.get(`/notes/${docId}`);
+                        if (res.data) {
+                          setNotesData(res.data.notes_text || res.data.notes || notesData);
+                        }
+                      } catch { /* silent */ }
+                    }
+                  }}
                 />
               )}
             </div>

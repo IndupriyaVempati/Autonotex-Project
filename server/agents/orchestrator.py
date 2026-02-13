@@ -7,6 +7,7 @@ from services.vector_db_service import VectorDBService
 import concurrent.futures
 import os
 import uuid
+import re
 
 class Orchestrator:
     def __init__(self):
@@ -30,6 +31,8 @@ class Orchestrator:
             print(f"Orchestrator: Processing {path} (type: {f_type})")
             text = self.multimodal_agent.process({"file_path": path, "file_type": f_type})
             combined_text += f"\n\n--- Source: {os.path.basename(path)} ---\n{text}"
+
+        combined_text = self._dedupe_text(combined_text)
         
         print(f"Orchestrator: Source diagrams extracted: {len(self.multimodal_agent.source_diagrams)}")
         for i, diagram in enumerate(self.multimodal_agent.source_diagrams):
@@ -69,7 +72,7 @@ class Orchestrator:
             "graph": graph_data,
             "notes": notes_text,
             "questions": questions,
-            "diagrams": self.notes_agent.diagrams if hasattr(self.notes_agent, 'diagrams') else [],
+            "diagrams": self.multimodal_agent.source_diagrams,
             "subject": self.notes_agent.subject if hasattr(self.notes_agent, 'subject') else "General",
             "source_diagrams": self.multimodal_agent.source_diagrams,
             "user_id": user_id,
@@ -87,6 +90,29 @@ class Orchestrator:
             "chunk_count": len(chunk_ids),
             "concept_count": len(concept_ids)
         }
+
+    def _dedupe_text(self, text: str) -> str:
+        if not text:
+            return text
+
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        seen = set()
+        kept = []
+
+        for paragraph in paragraphs:
+            normalized = self._normalize_text(paragraph)
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            kept.append(paragraph)
+
+        return "\n\n".join(kept)
+
+    def _normalize_text(self, text: str) -> str:
+        lowered = text.lower()
+        lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+        lowered = re.sub(r"\s+", " ", lowered).strip()
+        return lowered
 
     def handle_upload(self, file_path, file_type, user_id: str, scope: str = None):
         return self.handle_multiple_uploads([file_path], [file_type], user_id, scope)
