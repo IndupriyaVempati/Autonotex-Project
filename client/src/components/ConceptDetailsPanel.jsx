@@ -201,7 +201,7 @@ const ConceptDetailsPanel = ({ conceptLabel, docId, onClose, onNotesUpdated }) =
                                         });
                                         setAddedToNotes(true);
                                         if (onNotesUpdated) onNotesUpdated();
-                                    } catch (_) {
+                                    } catch {
                                         setWebError('Failed to add to notes');
                                     }
                                 }}
