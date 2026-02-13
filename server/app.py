@@ -556,9 +556,8 @@ def add_web_diagram(doc_id):
         if not image_url:
             return jsonify({"error": "image_url is required"}), 400
 
-        user = request.user
-        is_admin = user.get("role") == "admin"
-        note = orchestrator.db_service.get_note_by_id(doc_id, str(user.get("_id")), is_admin)
+        # Query directly by doc_id (skip scope filter so older notes without scope field are found)
+        note = orchestrator.db_service.db.notes.find_one({"doc_id": doc_id})
         if not note:
             return jsonify({"error": "Note not found"}), 404
 
@@ -591,9 +590,8 @@ def add_web_diagram(doc_id):
 def remove_web_diagram(doc_id, diagram_idx):
     """Remove a web diagram from the note by its index."""
     try:
-        user = request.user
-        is_admin = user.get("role") == "admin"
-        note = orchestrator.db_service.get_note_by_id(doc_id, str(user.get("_id")), is_admin)
+        # Query directly by doc_id (skip scope filter so older notes without scope field are found)
+        note = orchestrator.db_service.db.notes.find_one({"doc_id": doc_id})
         if not note:
             return jsonify({"error": "Note not found"}), 404
 

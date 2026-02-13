@@ -85,7 +85,7 @@ IMPORTANT:
                 ),
                 agent_name="QAAgent"
             )
-            result = json.loads(chat_completion.choices[0].message.content)
+            result = json.loads(chat_completion.choices[0].message.content or '{}')
             questions = result.get('questions', []) if isinstance(result, dict) else result
             
             # Validate and fix questions
@@ -216,7 +216,7 @@ Provide a comprehensive explanation."""
                 ),
                 agent_name="QAAgent"
             )
-            return json.loads(chat_completion.choices[0].message.content)
+            return json.loads(chat_completion.choices[0].message.content or '{}')
         except Exception as e:
             print(f"QAAgent: Concept explanation error: {e}")
             return {
